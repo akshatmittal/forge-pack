@@ -1,0 +1,41 @@
+{
+  "name": "forge-pack",
+  "version": "0.1.0",
+  "description": "Generate self-contained Solidity deployer files from Forge build artifacts",
+  "type": "module",
+  "bin": {
+    "forge-pack": "./dist/cli.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsdown && node -e \"const fs=require('fs'),p=require('path'),d='dist';fs.readdirSync(d).filter(f=>f.startsWith('index-')&&f.endsWith('.d.ts')).forEach(f=>{fs.copyFileSync(p.join(d,f),p.join(d,'index.d.ts'))});const c=fs.readFileSync(p.join(d,'cli.js'),'utf8');fs.writeFileSync(p.join(d,'cli.js'),'#!/usr/bin/env node\\n'+c)\"",
+    "dev": "tsdown --watch"
+  },
+  "keywords": [
+    "forge",
+    "foundry",
+    "solidity",
+    "deployer",
+    "bytecode"
+  ],
+  "author": "",
+  "license": "MIT",
+  "packageManager": "pnpm@10.29.3",
+  "devDependencies": {
+    "tsdown": "^0.12.5",
+    "typescript": "^5.8.3"
+  },
+  "dependencies": {
+    "@types/node": "^24.10.13"
+  }
+}
