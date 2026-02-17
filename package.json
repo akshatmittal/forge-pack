@@ -1,6 +1,6 @@
 {
   "name": "forge-pack",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Generate self-contained Solidity deployer files from Forge build artifacts",
   "type": "module",
   "bin": {
