@@ -5,9 +5,7 @@ export default defineConfig({
     cli: "src/cli.ts",
     index: "src/index.ts",
   },
-  format: "esm",
+  format: ["esm"],
   platform: "node",
   dts: true,
-  clean: true,
-  splitting: false,
 });
