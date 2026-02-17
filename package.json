@@ -4,14 +4,14 @@
   "description": "Generate self-contained Solidity deployer files from Forge build artifacts",
   "type": "module",
   "bin": {
-    "forge-pack": "./dist/cli.js"
+    "forge-pack": "./dist/cli.mjs"
   },
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "main": "./dist/index.mjs",
+  "types": "./dist/index.d.mts",
   "exports": {
     ".": {
-      "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "import": "./dist/index.mjs",
+      "types": "./dist/index.d.mts"
     }
   },
   "files": [
@@ -42,7 +42,7 @@
     "@changesets/changelog-github": "^0.5.2",
     "@changesets/cli": "^2.29.8",
     "@changesets/config": "^3.1.2",
-    "tsdown": "^0.12.5",
+    "tsdown": "^0.20.3",
     "typescript": "^5.8.3",
     "@types/node": "^24.10.13"
   },
