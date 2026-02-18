@@ -20,18 +20,13 @@ export function findArtifact(contractName: string, outDir: string): string {
   }
 
   if (candidates.length === 0) {
-    throw new Error(
-      `No artifact found for "${contractName}" in ${outDir}. Run \`forge build\` first.`,
-    );
+    throw new Error(`No artifact found for "${contractName}" in ${outDir}. Run \`forge build\` first.`);
   }
 
   return candidates[0];
 }
 
-export function parseArtifact(
-  artifactPath: string,
-  contractName: string,
-): ParsedArtifact {
+export function parseArtifact(artifactPath: string, contractName: string): ParsedArtifact {
   const raw = JSON.parse(readFileSync(artifactPath, "utf-8"));
 
   const abi: AbiEntry[] = raw.abi ?? [];
@@ -46,6 +41,9 @@ export function parseArtifact(
   const optimizerRuns = settings?.optimizer?.runs as number | undefined;
   const viaIR = settings?.viaIR as boolean | undefined;
   const evmVersion = settings?.evmVersion as string | undefined;
+  const bytecodeHash = (metadata?.settings?.metadata?.bytecodeHash ?? settings?.metadata?.bytecodeHash) as
+    | string
+    | undefined;
 
   let sourcePath: string | undefined;
   if (metadata?.settings?.compilationTarget) {
@@ -63,5 +61,6 @@ export function parseArtifact(
     optimizerRuns,
     viaIR,
     evmVersion,
+    bytecodeHash,
   };
 }

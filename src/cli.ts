@@ -66,9 +66,7 @@ for (const contractName of positionals) {
     const parsed = parseArtifact(artifactPath, contractName);
 
     if (!parsed.bytecode) {
-      console.error(
-        `Error: No bytecode found for "${contractName}". Is it an abstract contract or interface?`,
-      );
+      console.error(`Error: No bytecode found for "${contractName}". Is it an abstract contract or interface?`);
       hasError = true;
       continue;
     }
@@ -79,9 +77,7 @@ for (const contractName of positionals) {
     if (hasLinks) {
       libraries = resolveLibraries(parsed.linkReferences, outDir);
       const libNames = libraries.map((l) => l.lib);
-      console.log(
-        `[${contractName}] Resolved ${libNames.length} library dep(s): ${libNames.join(", ")}`,
-      );
+      console.log(`[${contractName}] Resolved ${libNames.length} library dep(s): ${libNames.join(", ")}`);
     }
 
     const solidity = generateDeployer(parsed, { pragma, libraries });

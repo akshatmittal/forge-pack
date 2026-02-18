@@ -1,10 +1,4 @@
-import type {
-  AbiParam,
-  GenerateDeployerOptions,
-  LinkReferences,
-  ParsedArtifact,
-  ResolvedLibrary,
-} from "./types.js";
+import type { AbiParam, GenerateDeployerOptions, LinkReferences, ParsedArtifact, ResolvedLibrary } from "./types.js";
 import { makeParamName } from "./resolve.js";
 
 // ── Struct handling ─────────────────────────────────────────────────────
@@ -65,14 +59,9 @@ function abiTypeToSolidity(param: AbiParam): string {
   return param.type;
 }
 
-function formatParamWithStructs(
-  param: AbiParam,
-  index: number,
-  structNames: Set<string>,
-): string {
+function formatParamWithStructs(param: AbiParam, index: number, structNames: Set<string>): string {
   const solType = abiTypeToSolidity(param);
-  const needsMemory =
-    needsMemoryLocation(solType) || isStructType(solType, structNames);
+  const needsMemory = needsMemoryLocation(solType) || isStructType(solType, structNames);
   const location = needsMemory ? " memory" : "";
   const name = param.name || `arg${index}`;
   return `${solType}${location} ${name}`;
@@ -161,89 +150,55 @@ function buildBytecodeSegments(
 
 // ── Initcode rendering ──────────────────────────────────────────────────
 
-function renderInitcodeBody(
-  bytecode: string,
-  segments: BytecodeSegment[],
-  hasLinks: boolean,
-): string {
+function renderInitcodeBody(bytecode: string, segments: BytecodeSegment[], hasLinks: boolean): string {
   if (!hasLinks) {
     return `        return hex"${bytecode}";`;
   }
-  const parts = segments
-    .map((seg) => (seg.type === "hex" ? `hex"${seg.value}"` : seg.value))
-    .join(", ");
+  const parts = segments.map((seg) => (seg.type === "hex" ? `hex"${seg.value}"` : seg.value)).join(", ");
   return `        return abi.encodePacked(${parts});`;
 }
 
 // ── Shared deploy body rendering ────────────────────────────────────────
 
 function renderDeployBody(opts: {
-  useSalt: boolean;
   inlineLibs: boolean;
   resolvedLibs: ResolvedLibrary[];
   ctorParams: AbiParam[];
   initcodeCallArgs: string;
   isPayable: boolean;
 }): string {
-  const {
-    useSalt,
-    inlineLibs,
-    resolvedLibs,
-    ctorParams,
-    initcodeCallArgs,
-  } = opts;
+  const { inlineLibs, resolvedLibs, ctorParams, initcodeCallArgs } = opts;
 
   const lines: string[] = [];
 
   if (inlineLibs) {
     for (const rlib of resolvedLibs) {
-      const { libParams: libLibParams } = buildBytecodeSegments(
-        rlib.artifact.bytecode,
-        rlib.artifact.linkReferences,
-      );
-      const callArgs =
-        libLibParams.length > 0
-          ? libLibParams.map((lp) => lp.name).join(", ")
-          : "";
+      const { libParams: libLibParams } = buildBytecodeSegments(rlib.artifact.bytecode, rlib.artifact.linkReferences);
+      const callArgs = libLibParams.length > 0 ? libLibParams.map((lp) => lp.name).join(", ") : "";
       lines.push(
-        `        address ${rlib.paramName} = DeployHelper.deploy(_${rlib.paramName}Initcode(${callArgs}));`,
+        `        address ${rlib.paramName} = DeployHelper.deployLibrary(_${rlib.paramName}Initcode(${callArgs}));`,
       );
     }
   }
 
   if (ctorParams.length > 0) {
-    const encodeArgs = ctorParams
-      .map((p, i) => p.name || `arg${i}`)
-      .join(", ");
+    const encodeArgs = ctorParams.map((p, i) => p.name || `arg${i}`).join(", ");
     lines.push(`        bytes memory args = abi.encode(${encodeArgs});`);
-    lines.push(
-      `        bytes memory initcode_ = abi.encodePacked(initcode(${initcodeCallArgs}), args);`,
-    );
+    lines.push(`        bytes memory initcode_ = abi.encodePacked(initcode(${initcodeCallArgs}), args);`);
   } else {
-    lines.push(
-      `        bytes memory initcode_ = initcode(${initcodeCallArgs});`,
-    );
+    lines.push(`        bytes memory initcode_ = initcode(${initcodeCallArgs});`);
   }
 
-  if (useSalt) {
-    lines.push(`        deployed = DeployHelper.deploy(initcode_, salt);`);
-  } else {
-    lines.push(`        deployed = DeployHelper.deploy(initcode_);`);
-  }
+  lines.push(`        deployed = DeployHelper.deploy(initcode_, salt);`);
 
   return lines.join("\n");
 }
 
 // ── Code generation ─────────────────────────────────────────────────────
 
-export function generateDeployer(
-  parsed: ParsedArtifact,
-  pragmaOrOpts?: string | GenerateDeployerOptions,
-): string {
+export function generateDeployer(parsed: ParsedArtifact, pragmaOrOpts?: string | GenerateDeployerOptions): string {
   const opts: GenerateDeployerOptions =
-    typeof pragmaOrOpts === "string"
-      ? { pragma: pragmaOrOpts }
-      : pragmaOrOpts ?? {};
+    typeof pragmaOrOpts === "string" ? { pragma: pragmaOrOpts } : (pragmaOrOpts ?? {});
 
   const pragma = opts.pragma ?? ">=0.8.0";
   const resolvedLibs = opts.libraries ?? [];
@@ -261,8 +216,7 @@ export function generateDeployer(
   const structNames = new Set(structDefs.map((s) => s.name));
 
   // Build bytecode segments for the main contract
-  const { segments: mainSegments, libParams: mainLibParams } =
-    buildBytecodeSegments(bytecode, linkReferences);
+  const { segments: mainSegments, libParams: mainLibParams } = buildBytecodeSegments(bytecode, linkReferences);
   const hasLinks = mainLibParams.length > 0;
 
   // Determine if we're inlining library deployment
@@ -270,14 +224,12 @@ export function generateDeployer(
 
   // ── Metadata comment ──
   const metaLines: string[] = [];
-  if (parsed.sourcePath)
-    metaLines.push(`@notice Source Contract: ${parsed.sourcePath}`);
+  if (parsed.sourcePath) metaLines.push(`@notice Source Contract: ${parsed.sourcePath}`);
   if (parsed.solcVersion) metaLines.push(`- solc: ${parsed.solcVersion}`);
-  if (parsed.optimizerRuns !== undefined)
-    metaLines.push(`- optimizer_runs: ${parsed.optimizerRuns}`);
-  if (parsed.viaIR) metaLines.push(`- viaIR: true`);
-  if (parsed.evmVersion)
-    metaLines.push(`- evm_version: ${parsed.evmVersion}`);
+  if (parsed.optimizerRuns !== undefined) metaLines.push(`- optimizer_runs: ${parsed.optimizerRuns}`);
+  metaLines.push(`- viaIR: ${parsed.viaIR ?? false}`);
+  if (parsed.evmVersion) metaLines.push(`- evm_version: ${parsed.evmVersion}`);
+  metaLines.push(`- bytecodeHash: ${parsed.bytecodeHash ?? "ipfs"}`);
 
   const metaBlock =
     metaLines.length > 0
@@ -293,17 +245,13 @@ export function generateDeployer(
   // ── Struct definitions ──
   const structBlock = structDefs
     .map((s) => {
-      const fields = s.fields
-        .map((f) => `        ${f.type} ${f.name};`)
-        .join("\n");
+      const fields = s.fields.map((f) => `        ${f.type} ${f.name};`).join("\n");
       return `    struct ${s.name} {\n${fields}\n    }`;
     })
     .join("\n\n");
 
   // ── initcode() — always accepts library addresses for composability ──
-  const initcodeParams = hasLinks
-    ? mainLibParams.map((lp) => `address ${lp.name}`).join(", ")
-    : "";
+  const initcodeParams = hasLinks ? mainLibParams.map((lp) => `address ${lp.name}`).join(", ") : "";
 
   const initcodeBody = renderInitcodeBody(bytecode, mainSegments, hasLinks);
 
@@ -311,20 +259,13 @@ export function generateDeployer(
   const libInitcodeFns: string[] = [];
   if (inlineLibs) {
     for (const rlib of resolvedLibs) {
-      const { segments: libSegs, libParams: libLibParams } =
-        buildBytecodeSegments(
-          rlib.artifact.bytecode,
-          rlib.artifact.linkReferences,
-        );
-      const libHasLinks = libLibParams.length > 0;
-      const fnParams = libHasLinks
-        ? libLibParams.map((lp) => `address ${lp.name}`).join(", ")
-        : "";
-      const fnBody = renderInitcodeBody(
+      const { segments: libSegs, libParams: libLibParams } = buildBytecodeSegments(
         rlib.artifact.bytecode,
-        libSegs,
-        libHasLinks,
+        rlib.artifact.linkReferences,
       );
+      const libHasLinks = libLibParams.length > 0;
+      const fnParams = libHasLinks ? libLibParams.map((lp) => `address ${lp.name}`).join(", ") : "";
+      const fnBody = renderInitcodeBody(rlib.artifact.bytecode, libSegs, libHasLinks);
       libInitcodeFns.push(
         `    function _${rlib.paramName}Initcode(${fnParams}) private pure returns (bytes memory) {\n${fnBody}\n    }`,
       );
@@ -343,30 +284,14 @@ export function generateDeployer(
     }
   }
 
-  const deployParamStr = deployParams.join(", ");
-  const deploy2Params =
-    deployParams.length > 0
-      ? `${deployParamStr}, bytes32 salt`
-      : `bytes32 salt`;
+  const deployParamStr = deployParams.length > 0 ? `${deployParams.join(", ")}, bytes32 salt` : `bytes32 salt`;
 
-  const initcodeCallArgs = hasLinks
-    ? mainLibParams.map((lp) => lp.name).join(", ")
-    : "";
+  const initcodeCallArgs = hasLinks ? mainLibParams.map((lp) => lp.name).join(", ") : "";
 
   const payableModifier = isPayable ? " payable" : "";
 
   // ── Shared deploy body ──
   const deployBody = renderDeployBody({
-    useSalt: false,
-    inlineLibs,
-    resolvedLibs,
-    ctorParams,
-    initcodeCallArgs,
-    isPayable,
-  });
-
-  const deploy2Body = renderDeployBody({
-    useSalt: true,
     inlineLibs,
     resolvedLibs,
     ctorParams,
@@ -376,10 +301,7 @@ export function generateDeployer(
 
   // ── Assemble ──
   const structSection = structBlock ? `\n${structBlock}\n` : "";
-  const libInitcodeSection =
-    libInitcodeFns.length > 0
-      ? "\n" + libInitcodeFns.join("\n\n") + "\n"
-      : "";
+  const libInitcodeSection = libInitcodeFns.length > 0 ? "\n" + libInitcodeFns.join("\n\n") + "\n" : "";
 
   return `// SPDX-License-Identifier: MIT
 pragma solidity ${pragma};
@@ -390,10 +312,6 @@ library ${libName} {
 ${metaBlock}${structSection}
     function deploy(${deployParamStr}) internal${payableModifier} returns (address deployed) {
 ${deployBody}
-    }
-
-    function deploy2(${deploy2Params}) internal${payableModifier} returns (address deployed) {
-${deploy2Body}
     }
 
     function initcode(${initcodeParams}) internal pure returns (bytes memory) {

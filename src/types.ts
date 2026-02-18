@@ -35,6 +35,7 @@ export interface ParsedArtifact {
   optimizerRuns?: number;
   viaIR?: boolean;
   evmVersion?: string;
+  bytecodeHash?: string;
 }
 
 export interface ResolvedLibrary {
