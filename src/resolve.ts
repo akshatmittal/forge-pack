@@ -1,5 +1,6 @@
 import { findArtifact, parseArtifact } from "./artifact.js";
 import type { LinkReferences, ResolvedLibrary } from "./types.js";
+import { uniqueName } from "./names.js";
 
 export function collectLibIds(linkRefs: LinkReferences): { file: string; lib: string }[] {
   const seen = new Set<string>();
@@ -28,6 +29,7 @@ export function makeParamName(libName: string): string {
 export function resolveLibraries(linkRefs: LinkReferences, outDir: string): ResolvedLibrary[] {
   const resolved = new Map<string, ResolvedLibrary>();
   const visiting = new Set<string>();
+  const usedNames = new Set<string>();
 
   function resolve(file: string, lib: string): ResolvedLibrary {
     const key = `${file}:${lib}`;
@@ -37,7 +39,7 @@ export function resolveLibraries(linkRefs: LinkReferences, outDir: string): Reso
     }
     visiting.add(key);
 
-    const artifactPath = findArtifact(lib, outDir);
+    const artifactPath = findArtifact(lib, outDir, file);
     const artifact = parseArtifact(artifactPath, lib);
 
     const libIds = collectLibIds(artifact.linkReferences);
@@ -50,7 +52,7 @@ export function resolveLibraries(linkRefs: LinkReferences, outDir: string): Reso
     visiting.delete(key);
 
     const entry: ResolvedLibrary = {
-      paramName: makeParamName(lib),
+      paramName: uniqueName(makeParamName(lib), usedNames),
       file,
       lib,
       artifact,
@@ -65,41 +67,5 @@ export function resolveLibraries(linkRefs: LinkReferences, outDir: string): Reso
     resolve(file, lib);
   }
 
-  // Disambiguate colliding paramNames with numeric suffixes
-  const libs = Array.from(resolved.values());
-  const nameCount = new Map<string, number>();
-  for (const entry of libs) {
-    const count = nameCount.get(entry.paramName) ?? 0;
-    nameCount.set(entry.paramName, count + 1);
-  }
-
-  const collisions = new Set<string>();
-  for (const [name, count] of nameCount) {
-    if (count > 1) collisions.add(name);
-  }
-
-  if (collisions.size > 0) {
-    const nameIndex = new Map<string, number>();
-    for (const entry of libs) {
-      if (!collisions.has(entry.paramName)) continue;
-      const idx = (nameIndex.get(entry.paramName) ?? 0) + 1;
-      nameIndex.set(entry.paramName, idx);
-      if (idx > 1) {
-        const oldName = entry.paramName;
-        entry.paramName = `${oldName}${idx}`;
-      }
-    }
-
-    // Update deps references to use new names
-    const keyToName = new Map<string, string>();
-    for (const entry of libs) {
-      keyToName.set(`${entry.file}:${entry.lib}`, entry.paramName);
-    }
-    for (const entry of libs) {
-      const depLibIds = collectLibIds(entry.artifact.linkReferences);
-      entry.deps = depLibIds.map((d) => keyToName.get(`${d.file}:${d.lib}`)!);
-    }
-  }
-
-  return libs;
+  return Array.from(resolved.values());
 }

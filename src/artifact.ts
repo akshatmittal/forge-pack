@@ -2,7 +2,7 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { AbiEntry, LinkReferences, ParsedArtifact } from "./types.js";
 
-export function findArtifact(contractName: string, outDir: string): string {
+export function findArtifact(contractName: string, outDir: string, sourcePath?: string): string {
   const candidates: string[] = [];
   const entries = readdirSync(outDir);
 
@@ -19,11 +19,19 @@ export function findArtifact(contractName: string, outDir: string): string {
     }
   }
 
-  if (candidates.length === 0) {
-    throw new Error(`No artifact found for "${contractName}" in ${outDir}. Run \`forge build\` first.`);
+  const matches = sourcePath
+    ? candidates.filter((path) => parseArtifact(path, contractName).sourcePath === sourcePath)
+    : candidates;
+  const id = sourcePath ? `${sourcePath}:${contractName}` : contractName;
+  if (matches.length === 0) {
+    throw new Error(`No artifact found for "${id}" in ${outDir}. Run \`forge build\` first.`);
   }
 
-  return candidates[0];
+  if (matches.length > 1) {
+    throw new Error(`Ambiguous artifact for "${id}": ${matches.join(", ")}. Specify its source path.`);
+  }
+
+  return matches[0];
 }
 
 export function parseArtifact(artifactPath: string, contractName: string): ParsedArtifact {

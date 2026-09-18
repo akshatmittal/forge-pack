@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import solc from "solc";
 import ganache from "ganache";
 import { BrowserProvider, ContractFactory } from "ethers";
+import { findArtifact, generateDeployer, parseArtifact } from "../dist/index.mjs";
 
 export function tempDir(t) {
   const dir = mkdtempSync(join(tmpdir(), "forge-pack-test-"));
@@ -48,7 +49,7 @@ export function writeArtifacts(dir, contracts) {
   }
 }
 
-export async function harness(t, sources, body) {
+export async function harness(t, sources, body, { inlineLibraries = true } = {}) {
   const contracts = compile(sources);
   const dir = tempDir(t);
   const out = join(dir, "out");
@@ -62,7 +63,9 @@ export async function harness(t, sources, body) {
     "--output",
     deployers,
   ]);
-  const generated = readFileSync(join(deployers, "TargetDeployer.sol"), "utf8");
+  const generated = inlineLibraries
+    ? readFileSync(join(deployers, "TargetDeployer.sol"), "utf8")
+    : generateDeployer(parseArtifact(findArtifact("Target", out), "Target"));
   const helper = readFileSync(join(deployers, "utils/DeployHelper.sol"), "utf8");
   const compiled = compile({
     "TargetDeployer.sol": generated,
