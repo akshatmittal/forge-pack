@@ -1,5 +1,6 @@
 import type { AbiParam, GenerateDeployerOptions, LinkReferences, ParsedArtifact, ResolvedLibrary } from "./types.js";
-import { makeParamName } from "./resolve.js";
+import { collectLibIds, makeParamName } from "./resolve.js";
+import { uniqueName } from "./names.js";
 
 // ── Struct handling ─────────────────────────────────────────────────────
 
@@ -16,7 +17,7 @@ function extractStructName(internalType: string): string {
   return name;
 }
 
-function collectStructDefs(params: AbiParam[]): StructDef[] {
+function collectStructDefs(params: AbiParam[], usedNames: Set<string>): Map<string, StructDef> {
   const seen = new Map<string, StructDef>();
 
   function walk(param: AbiParam): void {
@@ -27,41 +28,42 @@ function collectStructDefs(params: AbiParam[]): StructDef[] {
       walk(comp);
     }
 
-    const name = extractStructName(it);
-    if (seen.has(name)) return;
+    const key = it.replace(/(\[\d*\])+$/, "");
+    if (seen.has(key)) return;
+    const name = uniqueName(extractStructName(it), usedNames);
 
     const fields = param.components.map((comp, i) => ({
-      type: abiTypeToSolidity(comp),
+      type: abiTypeToSolidity(comp, seen),
       name: comp.name || `field${i}`,
     }));
 
-    seen.set(name, { name, fields });
+    seen.set(key, { name, fields });
   }
 
   for (const p of params) walk(p);
-  return Array.from(seen.values());
+  return seen;
 }
 
 // ── ABI type conversion ─────────────────────────────────────────────────
 
-function abiTypeToSolidity(param: AbiParam): string {
+function abiTypeToSolidity(param: AbiParam, structs: Map<string, StructDef>): string {
   if (param.internalType) {
     const it = param.internalType;
-    if (it.startsWith("contract ")) return "address";
+    if (it.startsWith("contract ")) return param.type;
     if (it.startsWith("enum ")) return param.type;
     if (it.startsWith("struct ")) {
-      const baseName = extractStructName(it);
+      const baseName = structs.get(it.replace(/(\[\d*\])+$/, ""))!.name;
       const arraySuffix = param.type.replace(/^tuple/, "");
       return baseName + arraySuffix;
     }
-    return it;
+    if (it.startsWith("function ")) return it;
   }
   return param.type;
 }
 
-function formatParamWithStructs(param: AbiParam, index: number, structNames: Set<string>): string {
-  const solType = abiTypeToSolidity(param);
-  const needsMemory = needsMemoryLocation(solType) || isStructType(solType, structNames);
+function formatParamWithStructs(param: AbiParam, index: number, structs: Map<string, StructDef>): string {
+  const solType = abiTypeToSolidity(param, structs);
+  const needsMemory = needsMemoryLocation(solType) || param.type.startsWith("tuple");
   const location = needsMemory ? " memory" : "";
   const name = param.name || `arg${index}`;
   return `${solType}${location} ${name}`;
@@ -71,11 +73,6 @@ function needsMemoryLocation(solType: string): boolean {
   if (solType === "string" || solType === "bytes") return true;
   if (solType.endsWith("[]") || /\[\d+\]$/.test(solType)) return true;
   return false;
-}
-
-function isStructType(solType: string, structNames: Set<string>): boolean {
-  const baseName = solType.replace(/(\[\d*\])+$/, "");
-  return structNames.has(baseName);
 }
 
 // ── Bytecode segmenting ─────────────────────────────────────────────────
@@ -94,6 +91,7 @@ interface LibParam {
 function buildBytecodeSegments(
   bytecode: string,
   linkReferences: LinkReferences,
+  libraryNames: Map<string, string>,
 ): { segments: BytecodeSegment[]; libParams: LibParam[] } {
   const placeholders: {
     start: number;
@@ -119,7 +117,7 @@ function buildBytecodeSegments(
   for (const p of placeholders) {
     const key = `${p.file}:${p.lib}`;
     if (!libMap.has(key)) {
-      const paramName = makeParamName(p.lib);
+      const paramName = libraryNames.get(key)!;
       libMap.set(key, paramName);
       libParams.push({ name: paramName, file: p.file, lib: p.lib });
     }
@@ -166,17 +164,24 @@ function renderDeployBody(opts: {
   ctorParams: AbiParam[];
   initcodeCallArgs: string;
   isPayable: boolean;
+  libraryNames: Map<string, string>;
+  libraryFunctions: Map<string, string>;
 }): string {
-  const { inlineLibs, resolvedLibs, ctorParams, initcodeCallArgs } = opts;
+  const { inlineLibs, resolvedLibs, ctorParams, initcodeCallArgs, libraryNames, libraryFunctions } = opts;
 
   const lines: string[] = [];
 
   if (inlineLibs) {
     for (const rlib of resolvedLibs) {
-      const { libParams: libLibParams } = buildBytecodeSegments(rlib.artifact.bytecode, rlib.artifact.linkReferences);
+      const key = `${rlib.file}:${rlib.lib}`;
+      const { libParams: libLibParams } = buildBytecodeSegments(
+        rlib.artifact.bytecode,
+        rlib.artifact.linkReferences,
+        libraryNames,
+      );
       const callArgs = libLibParams.length > 0 ? libLibParams.map((lp) => lp.name).join(", ") : "";
       lines.push(
-        `        address ${rlib.paramName} = DeployHelper.deployLibrary(_${rlib.paramName}Initcode(${callArgs}));`,
+        `        address ${libraryNames.get(key)} = DeployHelper.deployLibrary(${libraryFunctions.get(key)}(${callArgs}));`,
       );
     }
   }
@@ -189,7 +194,7 @@ function renderDeployBody(opts: {
     lines.push(`        bytes memory initcode_ = initcode(${initcodeCallArgs});`);
   }
 
-  lines.push(`        deployed = DeployHelper.deploy(initcode_, salt);`);
+  lines.push(`        deployed = DeployHelper.deploy(initcode_, salt, ${opts.isPayable ? "msg.value" : "0"});`);
 
   return lines.join("\n");
 }
@@ -205,18 +210,49 @@ export function generateDeployer(parsed: ParsedArtifact, pragmaOrOpts?: string |
 
   const { contractName, abi, bytecode, linkReferences } = parsed;
   const libName = `${contractName}Deployer`;
+  const usedNames = new Set([
+    libName,
+    "DeployHelper",
+    "deploy",
+    "initcode",
+    "salt",
+    "deployed",
+    "args",
+    "initcode_",
+    "abi",
+    "msg",
+  ]);
+  const libraryNames = new Map<string, string>();
+  for (const lib of resolvedLibs) {
+    libraryNames.set(`${lib.file}:${lib.lib}`, uniqueName(lib.paramName, usedNames));
+  }
+  for (const { file, lib } of collectLibIds(linkReferences)) {
+    const key = `${file}:${lib}`;
+    if (!libraryNames.has(key)) libraryNames.set(key, uniqueName(makeParamName(lib), usedNames));
+  }
+  const libraryFunctions = new Map<string, string>();
+  for (const [key, name] of libraryNames) {
+    libraryFunctions.set(key, uniqueName(`_${name}Initcode`, usedNames));
+  }
 
   // Find constructor
   const ctorEntry = abi.find((e) => e.type === "constructor");
-  const ctorParams = ctorEntry?.inputs ?? [];
+  const inputs = ctorEntry?.inputs ?? [];
   const isPayable = ctorEntry?.stateMutability === "payable";
 
   // Collect struct definitions from constructor params
-  const structDefs = collectStructDefs(ctorParams);
-  const structNames = new Set(structDefs.map((s) => s.name));
+  const structDefs = collectStructDefs(inputs, usedNames);
+  const ctorParams = inputs.map((param, i) => ({
+    ...param,
+    name: uniqueName(param.name || `arg${i}`, usedNames),
+  }));
 
   // Build bytecode segments for the main contract
-  const { segments: mainSegments, libParams: mainLibParams } = buildBytecodeSegments(bytecode, linkReferences);
+  const { segments: mainSegments, libParams: mainLibParams } = buildBytecodeSegments(
+    bytecode,
+    linkReferences,
+    libraryNames,
+  );
   const hasLinks = mainLibParams.length > 0;
 
   // Determine if we're inlining library deployment
@@ -243,7 +279,7 @@ export function generateDeployer(parsed: ParsedArtifact, pragmaOrOpts?: string |
       : "";
 
   // ── Struct definitions ──
-  const structBlock = structDefs
+  const structBlock = Array.from(structDefs.values())
     .map((s) => {
       const fields = s.fields.map((f) => `        ${f.type} ${f.name};`).join("\n");
       return `    struct ${s.name} {\n${fields}\n    }`;
@@ -262,12 +298,13 @@ export function generateDeployer(parsed: ParsedArtifact, pragmaOrOpts?: string |
       const { segments: libSegs, libParams: libLibParams } = buildBytecodeSegments(
         rlib.artifact.bytecode,
         rlib.artifact.linkReferences,
+        libraryNames,
       );
       const libHasLinks = libLibParams.length > 0;
       const fnParams = libHasLinks ? libLibParams.map((lp) => `address ${lp.name}`).join(", ") : "";
       const fnBody = renderInitcodeBody(rlib.artifact.bytecode, libSegs, libHasLinks);
       libInitcodeFns.push(
-        `    function _${rlib.paramName}Initcode(${fnParams}) private pure returns (bytes memory) {\n${fnBody}\n    }`,
+        `    function ${libraryFunctions.get(`${rlib.file}:${rlib.lib}`)}(${fnParams}) private pure returns (bytes memory) {\n${fnBody}\n    }`,
       );
     }
   }
@@ -275,7 +312,7 @@ export function generateDeployer(parsed: ParsedArtifact, pragmaOrOpts?: string |
   // ── deploy() params: only constructor args when libs are inlined ──
   const deployParams: string[] = [];
   for (let i = 0; i < ctorParams.length; i++) {
-    deployParams.push(formatParamWithStructs(ctorParams[i], i, structNames));
+    deployParams.push(formatParamWithStructs(ctorParams[i], i, structDefs));
   }
   // If libs are NOT inlined, require them as address params (legacy path)
   if (hasLinks && !inlineLibs) {
@@ -288,8 +325,6 @@ export function generateDeployer(parsed: ParsedArtifact, pragmaOrOpts?: string |
 
   const initcodeCallArgs = hasLinks ? mainLibParams.map((lp) => lp.name).join(", ") : "";
 
-  const payableModifier = isPayable ? " payable" : "";
-
   // ── Shared deploy body ──
   const deployBody = renderDeployBody({
     inlineLibs,
@@ -297,6 +332,8 @@ export function generateDeployer(parsed: ParsedArtifact, pragmaOrOpts?: string |
     ctorParams,
     initcodeCallArgs,
     isPayable,
+    libraryNames,
+    libraryFunctions,
   });
 
   // ── Assemble ──
@@ -310,7 +347,7 @@ import {DeployHelper} from "./utils/DeployHelper.sol";
 
 library ${libName} {
 ${metaBlock}${structSection}
-    function deploy(${deployParamStr}) internal${payableModifier} returns (address deployed) {
+    function deploy(${deployParamStr}) internal returns (address deployed) {
 ${deployBody}
     }
 

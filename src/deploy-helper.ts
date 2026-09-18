@@ -2,9 +2,9 @@ export const DEPLOY_HELPER_SOL = `// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.10;
 
 library DeployHelper {
-    function deploy(bytes memory initcode, bytes32 salt) internal returns (address contractAddress) {
+    function deploy(bytes memory initcode, bytes32 salt, uint256 value) internal returns (address contractAddress) {
         assembly ("memory-safe") {
-            contractAddress := create2(callvalue(), add(initcode, 32), mload(initcode), salt)
+            contractAddress := create2(value, add(initcode, 32), mload(initcode), salt)
             if iszero(contractAddress) {
                 let ptr := mload(0x40)
                 let errorSize := returndatasize()
@@ -12,6 +12,10 @@ library DeployHelper {
                 revert(ptr, errorSize)
             }
         }
+    }
+
+    function deploy(bytes memory initcode, bytes32 salt) internal returns (address contractAddress) {
+        contractAddress = deploy(initcode, salt, msg.value);
     }
 
     function deploy(bytes memory initcode) internal returns (address contractAddress) {
@@ -24,7 +28,7 @@ library DeployHelper {
         bytes32 salt = bytes32(0);
         contractAddress = address(uint160(uint256(keccak256(abi.encodePacked(bytes1(0xff), address(this), salt, keccak256(initcode))))));
         if (contractAddress.code.length > 0) return contractAddress;
-        contractAddress = deploy(initcode, salt);
+        contractAddress = deploy(initcode, salt, 0);
     }
 }
 `;

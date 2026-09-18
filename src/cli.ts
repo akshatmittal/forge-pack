@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { parseArgs } from "node:util";
 import { execSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -56,6 +57,10 @@ mkdirSync(utilsDir, { recursive: true });
 if (!existsSync(deployHelperPath)) {
   writeFileSync(deployHelperPath, DEPLOY_HELPER_SOL);
   console.log(`Generated ${deployHelperPath}`);
+} else if (readFileSync(deployHelperPath, "utf-8") !== DEPLOY_HELPER_SOL) {
+  console.warn(
+    `Warning: ${deployHelperPath} differs from the bundled helper and was left unchanged. Back it up, remove it, and rerun to regenerate it before compiling the new deployers.`,
+  );
 }
 
 let hasError = false;
