@@ -47,14 +47,14 @@ function collectStructDefs(params: AbiParam[]): StructDef[] {
 function abiTypeToSolidity(param: AbiParam): string {
   if (param.internalType) {
     const it = param.internalType;
-    if (it.startsWith("contract ")) return "address";
+    if (it.startsWith("contract ")) return param.type;
     if (it.startsWith("enum ")) return param.type;
     if (it.startsWith("struct ")) {
       const baseName = extractStructName(it);
       const arraySuffix = param.type.replace(/^tuple/, "");
       return baseName + arraySuffix;
     }
-    return it;
+    if (it.startsWith("function ")) return it;
   }
   return param.type;
 }
@@ -288,8 +288,6 @@ export function generateDeployer(parsed: ParsedArtifact, pragmaOrOpts?: string |
 
   const initcodeCallArgs = hasLinks ? mainLibParams.map((lp) => lp.name).join(", ") : "";
 
-  const payableModifier = isPayable ? " payable" : "";
-
   // ── Shared deploy body ──
   const deployBody = renderDeployBody({
     inlineLibs,
@@ -310,7 +308,7 @@ import {DeployHelper} from "./utils/DeployHelper.sol";
 
 library ${libName} {
 ${metaBlock}${structSection}
-    function deploy(${deployParamStr}) internal${payableModifier} returns (address deployed) {
+    function deploy(${deployParamStr}) internal returns (address deployed) {
 ${deployBody}
     }
 
